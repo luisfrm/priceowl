@@ -1,0 +1,24 @@
+[project]
+name = "bot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Luis Rivas", email = "luisfrm_@outlook.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "python-dotenv>=1.2.2",
+    "python-telegram-bot>=22.7",
+    "shared",
+]
+
+[project.scripts]
+bot = "bot:main"
+
+[build-system]
+requires = ["uv_build>=0.11.15,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+shared = { workspace = true }
