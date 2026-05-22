@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16
+    image: postgres:latest
     container_name: priceowl_db
     restart: unless-stopped
     environment:

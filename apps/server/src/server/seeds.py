@@ -1,4 +1,6 @@
 # apps/server/src/server/seeds.py
+from server.models.schema import Provider
+
 def seed_providers():
     providers = [
         Provider(name="scraperapi", is_active=True),
