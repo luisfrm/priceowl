@@ -1,307 +1,99 @@
-# 🦉 PriceOwl — AGENTS.md
+# PriceOwl — AGENTS.md
 
-This file contains context, architecture decisions, and guidelines for AI agents (Cursor, Copilot, Claude, etc.) working on this codebase.
+Price-tracking Telegram bot + Flask API. UV workspace monorepo. Most business-logic files are empty stubs; the app is not runnable out of the box.
 
----
+## Monorepo boundaries
 
-## Project Overview
+- `apps/bot/` — Telegram bot package. Handlers and `main.py` are empty stubs. Actual script entry point is `bot/__init__.py:main`.
+- `apps/server/` — Flask API + scheduler. Only `app.py`, `config.py`, `extensions.py`, `schema.py`, and shared providers are implemented. Routes, services, repositories, and jobs are empty stubs.
+- `packages/shared/` — Provider implementations (`ScraperAPIProvider`, `MercadoLibreProvider`, `EbayProvider`).
 
-**PriceOwl** is a price tracking monorepo built with Python and UV workspaces.
-Users register products from multiple providers (MercadoLibre, eBay, ScraperAPI) via a Telegram bot,
-and receive daily price summaries with delta tracking (price went up / down / unchanged).
+**`uv sync` quirk:** The root `pyproject.toml` has `dependencies = []` and does not depend on the workspace apps. `uv sync` alone only resolves the root package, so workspace members (and their deps like `httpx`) are **not installed** in `.venv`. Always run:
 
-### Apps
-| App | Path | Description |
-|-----|------|-------------|
-| `bot` | `apps/bot/` | Telegram bot — user-facing interface, handles commands and conversations |
-| `server` | `apps/server/` | Flask REST API — business logic, scheduling, DB access |
-
-### Shared Package
-| Package | Path | Description |
-|---------|------|-------------|
-| `shared` | `packages/shared/` | Providers, DTOs, base models, config — shared across apps |
-
----
-
-## Tech Stack
-
-| Layer | Library | Version | Notes |
-|-------|---------|---------|-------|
-| Package manager | `uv` | latest | Workspace monorepo |
-| Bot framework | `python-telegram-bot` | v21 | Async native |
-| Web framework | `Flask` | 3.x | App factory pattern |
-| ORM | `SQLAlchemy` | 2.x | Modern style with type hints |
-| Migrations | `Alembic` | latest | Run from `apps/server/` |
-| Validation | `Pydantic` | v2 | DTOs, settings, provider contracts |
-| Scheduler | `APScheduler` | 3.x | Cron jobs inside Flask process |
-| HTTP client | `httpx` | latest | Async HTTP for provider calls |
-| HTML parser | `BeautifulSoup4` | latest | Used by ScraperAPIProvider |
-| DB (dev) | `SQLite` | — | Zero config local development |
-| DB (prod) | `PostgreSQL` | 15+ | Via `psycopg2-binary` |
-
----
-
-## Monorepo Structure
-
-```
-priceowl/
-├── AGENTS.md                  # ← you are here
-├── pyproject.toml             # UV workspace root
-├── uv.lock
-├── .env.example
-├── .gitignore
-│
-├── apps/
-│   ├── bot/
-│   │   ├── pyproject.toml
-│   │   └── src/bot/
-│   │       ├── __init__.py
-│   │       ├── main.py            # entry point, builds Application
-│   │       └── handlers/
-│   │           ├── __init__.py
-│   │           ├── start.py       # /start command
-│   │           ├── products.py    # /add, /list, /remove, /check
-│   │           └── errors.py      # global error handler
-│   │
-│   └── server/
-│       ├── pyproject.toml
-│       └── src/server/
-│           ├── __init__.py
-│           ├── app.py             # Flask app factory: create_app()
-│           ├── extensions.py      # db, scheduler instances (avoids circular imports)
-│           ├── config.py          # Settings via Pydantic BaseSettings
-│           │
-│           ├── routes/
-│           │   ├── __init__.py
-│           │   ├── product_routes.py
-│           │   └── user_routes.py
-│           │
-│           ├── services/
-│           │   ├── __init__.py
-│           │   ├── product_service.py        # business logic
-│           │   ├── notification_service.py   # sends Telegram messages
-│           │   └── provider_service.py       # resolves which provider to use
-│           │
-│           ├── repositories/
-│           │   ├── __init__.py
-│           │   ├── product_repository.py
-│           │   ├── user_repository.py
-│           │   └── provider_repository.py
-│           │
-│           ├── models/
-│           │   ├── __init__.py
-│           │   └── tables.py      # SQLAlchemy table definitions
-│           │
-│           └── jobs/
-│               ├── __init__.py
-│               └── daily_check.py # APScheduler job — runs every day at 9am
-│
-└── packages/
-    └── shared/
-        ├── pyproject.toml
-        └── src/shared/
-            ├── __init__.py
-            ├── config.py              # Pydantic BaseSettings (reads .env)
-            │
-            └── providers/
-                ├── __init__.py
-                ├── base_provider.py           # ABC interface + ProductResult DTO
-                ├── mercadolibre_provider.py   # Official MercadoLibre API
-                ├── ebay_provider.py           # Official eBay Browse API
-                └── scraperapi_provider.py     # ScraperAPI (Amazon scraping)
+```bash
+uv sync --all-packages
 ```
 
----
+## Verified stack
 
-## Architecture — Server (Layered)
+- Python >=3.14 (all `pyproject.toml` files).
+- `uv` workspace monorepo.
+- `python-telegram-bot` >=22.7.
+- Flask 3.x + Flask-SQLAlchemy + APScheduler.
+- SQLAlchemy 2.x (modern `Mapped` / `mapped_column` style).
+- Pydantic v2 + `pydantic-settings` for env validation.
+- PostgreSQL only; no SQLite fallback.
 
-```
-HTTP Request
-    │
-    ▼
-[ Route / Blueprint ]   → only handles HTTP: parse request, return response
-    │
-    ▼
-[ Service ]             → business logic, orchestration, NO direct DB access
-    │
-    ▼
-[ Repository ]          → only data access: SQLAlchemy queries, no logic
-    │
-    ▼
-[ SQLAlchemy Model ]    → table definition only, no methods
-```
+## Entry points
 
-**Rules:**
-- Routes never import repositories directly
-- Services never import Flask (`request`, `jsonify`, etc.)
-- Repositories never contain business logic
-- Models are plain table definitions — no class methods with logic
+- **Bot script:** `bot = "bot:main"` in `apps/bot/pyproject.toml` resolves to `apps/bot/src/bot/__init__.py:main`, **not** `main.py` (which is empty).
+- **Server script:** `server = "server:main"` in `apps/server/pyproject.toml` resolves to `apps/server/src/server/__init__.py:main` (also a placeholder).
+- **Flask app factory:** `create_app()` lives in `apps/server/src/server/app.py`.
 
----
+**Runnable status:** `create_app()` is currently broken because it imports `bp` from empty route files (`product_routes.py`, `user_routes.py`) and `daily_price_check` from empty `daily_check.py`. The server will not start until those modules define the expected symbols.
 
-## Database Models
+## Database
 
-```
-User
-├── telegram_id     PK  (integer, from Telegram)
-├── username            (string, nullable)
-└── created_at          (datetime, default now)
+- PostgreSQL only. URI is built inside `server.config.Settings.DATABASE_URL` from `POSTGRES_USER/PASSWORD/DB/HOST/PORT`.
+- **No Alembic setup exists.** There is no `alembic.ini`, `migrations/`, or `versions/` directory. Do not attempt to run migrations.
+- Schema lives in `apps/server/src/server/models/schema.py` (not `tables.py`). Models: `User`, `Provider`, `TrackedItem`, `ListProduct`, `PriceHistory`.
+- `apps/server/src/server/seeds.py` is an incomplete stub meant to seed providers on startup (only `scraperapi` is active by default).
+- Local Postgres: `docker compose up db`.
 
-Provider
-├── id              PK
-├── name                ("mercadolibre" | "ebay" | "scraperapi")
-├── is_active           (boolean, default true)
-└── config              (JSON — API keys, base URLs, etc.)
+## Architecture rules (server)
 
-Product
-├── id              PK
-├── user_id         FK → User.telegram_id
-├── provider_id     FK → Provider.id
-├── external_id         (product ID in the provider's system)
-├── url
-├── name
-├── target_price        (optional — alert if price drops below this)
-├── last_price
-├── last_checked
-└── created_at
+Intended layered flow: Route → Service → Repository → Model. Enforce this when filling stubs:
 
-PriceHistory
-├── id              PK
-├── product_id      FK → Product.id
-├── price
-└── checked_at
-```
+- Routes never import repositories directly.
+- Services never import Flask (`request`, `jsonify`, etc.).
+- Repositories contain only SQLAlchemy queries; no business logic.
+- Models are plain table definitions in `schema.py`.
 
----
+## Provider contract
 
-## Providers — Contract
-
-Every provider must extend `BaseProvider` from `packages/shared`.
-The service layer only depends on the base class — never on a concrete provider.
+All providers extend `BaseProvider` in `packages/shared/`. The service layer must depend only on the abstract class.
 
 ```python
-# packages/shared/src/shared/providers/base_provider.py
-
-class ProductResult(BaseModel):
-    title: str
-    price: float
-    currency: str
-    url: str
-    image_url: str | None
-    source: str   # provider name
-
 class BaseProvider(ABC):
     @abstractmethod
-    async def search(self, query: str) -> list[ProductResult]: ...
+    async def search(self, query: str, limit: int = 5) -> list[ProductResult]: ...
 
     @abstractmethod
     async def get_product(self, url: str) -> ProductResult: ...
 ```
 
----
+## Environment
 
-## Telegram Bot — Commands
-
-| Command | Description |
-|---------|-------------|
-| `/start` | Welcome message + available commands menu |
-| `/add <url>` | Register a product URL for daily tracking |
-| `/list` | Show all tracked products with last known price |
-| `/remove <id>` | Remove a product from tracking |
-| `/check` | Force an immediate price check for all products |
-
----
-
-## Daily Job
-
-`apps/server/src/server/jobs/daily_check.py` runs every day at **9:00 AM (local server time)**.
-
-Flow:
-1. Fetch all users that have at least one tracked product
-2. For each user, iterate their products
-3. Call `provider.get_product(url)` for each product
-4. Save new price to `PriceHistory`
-5. Update `Product.last_price` and `Product.last_checked`
-6. Call `notification_service.send_daily_summary(telegram_id, updates)`
-
----
-
-## Environment Variables
-
-All variables are defined in `.env` and validated at startup via Pydantic `BaseSettings`.
-The app **will not start** if any required variable is missing.
+Required variables (validated by Pydantic at startup; missing vars cause the app to fail):
 
 ```env
-# Telegram
+POSTGRES_USER=
+POSTGRES_PASSWORD=
+POSTGRES_DB=
 TELEGRAM_TOKEN=
+```
 
-# Database
-DATABASE_URL=sqlite:///./priceowl.db   # dev
-# DATABASE_URL=postgresql://user:pass@localhost:5432/priceowl  # prod
+Optional with defaults:
 
-# Providers
+```env
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+FLASK_ENV=development
+SECRET_KEY=change-me-in-production
+DAILY_CHECK_HOUR=9
+DAILY_CHECK_MINUTE=0
 MERCADOLIBRE_CLIENT_ID=
 MERCADOLIBRE_CLIENT_SECRET=
 EBAY_APP_ID=
 SCRAPERAPI_KEY=
 ```
 
----
+Config is read from `.env` by `apps/server/src/server/config.py`.
 
-## Coding Conventions
+## Extension instances
 
-- **Language:** Python 3.12+
-- **Type hints:** mandatory on all function signatures
-- **Docstrings:** on all public classes and methods
-- **Async:** bot handlers and provider calls are `async def`; Flask routes are sync (Flask 3 handles threading)
-- **Error handling:** raise domain exceptions from services; routes catch and return proper HTTP codes
-- **Naming:**
-  - Files: `snake_case`
-  - Classes: `PascalCase`
-  - Functions/variables: `snake_case`
-  - Constants: `UPPER_SNAKE_CASE`
+`apps/server/src/server/extensions.py` instantiates `db = SQLAlchemy()` and `scheduler = BackgroundScheduler()` at module level to avoid circular imports. They are bound to the Flask app inside `create_app()` via `db.init_app(app)` and `scheduler.start()`.
 
----
+## Testing / linting / CI
 
-## Local Development Setup
-
-```bash
-# 1. Clone and enter the project
-git clone https://github.com/your-user/priceowl.git
-cd priceowl
-
-# 2. Install dependencies (UV handles the workspace)
-uv sync
-
-# 3. Copy and fill env variables
-cp .env.example .env
-
-# 4. Run DB migrations
-cd apps/server
-uv run alembic upgrade head
-
-# 5. Start the server
-uv run flask --app src/server/app.py run
-
-# 6. Start the bot (separate terminal)
-cd apps/bot
-uv run python src/bot/main.py
-```
-
----
-
-## Git Conventions
-
-```
-feat:     new feature
-fix:      bug fix
-chore:    tooling, deps, config
-refactor: code change with no behavior change
-docs:     documentation only
-```
-
-Branch naming: `feat/add-ebay-provider`, `fix/daily-job-timezone`
-
----
-
-*Last updated: 2026 — maintainer: your-user*
+None exist yet. There are no pytest, ruff, black, mypy, or GitHub Actions configs in the repo.
