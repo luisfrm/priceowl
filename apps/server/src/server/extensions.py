@@ -1,4 +1,4 @@
-from apscheduler.schedulers.background import BackgroundScheduler
+from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 
 # These instances are created here without being tied to any app.
@@ -6,4 +6,4 @@ from flask_sqlalchemy import SQLAlchemy
 # This pattern avoids circular imports across routes, services, and models.
 
 db = SQLAlchemy()
-scheduler = BackgroundScheduler()
+migrate = Migrate()

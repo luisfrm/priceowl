@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -11,7 +11,6 @@ class Settings(BaseSettings):
 
     # --- Database ---
     DATABASE_URL: str | None = None
-    SQLITE_DATABASE_URL: str = "sqlite:///priceowl.db"
 
     POSTGRES_USER: str | None = None
     POSTGRES_PASSWORD: str | None = None
@@ -24,13 +23,10 @@ class Settings(BaseSettings):
         if self.DATABASE_URL:
             return self.DATABASE_URL
 
-        if self.APP_ENV in ("local", "development", ""):
-            return self.SQLITE_DATABASE_URL
-
         if not all([self.POSTGRES_USER, self.POSTGRES_PASSWORD, self.POSTGRES_DB]):
             raise ValueError(
-                "POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB are required "
-                f"when APP_ENV='{self.APP_ENV}'"
+                "POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB are required. "
+                "Please configure them in your .env file or run PostgreSQL locally (e.g. docker compose up db)."
             )
 
         return (
@@ -51,9 +47,11 @@ class Settings(BaseSettings):
     DAILY_CHECK_HOUR: int = 9
     DAILY_CHECK_MINUTE: int = 0
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
 
 
 settings = Settings()

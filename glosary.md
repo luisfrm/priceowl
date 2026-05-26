@@ -184,11 +184,24 @@ async with httpx.AsyncClient() as client:
     print(data["name"])
 ```
 
-### 🧬 Alembic (El "Prisma Migrate" o "TypeORM Migrations" de Python)
-En el ecosistema Node.js, cuando modificas un modelo/entidad y necesitas reflejar ese cambio en la base de datos de producción (añadir columnas, crear tablas), generas una migración con `prisma migrate dev` o `typeorm migration:generate`.
-En Python con SQLAlchemy, la herramienta oficial para gestionar las migraciones se llama **Alembic**.
-- Alembic lee tus modelos de SQLAlchemy (definidos en `schema.py`) y automáticamente detecta qué columnas han cambiado para autogenerar scripts de migración SQL (`alembic revision --autogenerate`).
-- **Estado en este proyecto:** Aunque `alembic` está listado en el `pyproject.toml` del servidor, actualmente **no existe un setup inicializado** (no hay archivo `alembic.ini` ni carpeta de migraciones). De momento, la base de datos se maneja directamente levantando la imagen de Postgres en Docker. Si en el futuro necesitas habilitarlo, el homólogo que estarías configurando es exactamente tu sistema de migraciones tradicional de Node.
+### 🧬 Flask-Migrate y Alembic (El "Drizzle" de Python)
+En el ecosistema Node.js, cuando modificas un modelo/entidad y necesitas reflejar ese cambio en la base de datos de producción (añadir columnas, crear tablas), usas herramientas de migración.
+En este proyecto utilizamos **Flask-Migrate**, que es un wrapper de Flask para **Alembic** (la herramienta oficial de migraciones de SQLAlchemy).
+
+#### 🗺️ Tabla de Equivalencias de comandos: Drizzle vs Flask-Migrate
+
+| Acción | Drizzle (Node.js) | Flask-Migrate (Python) | ¿Qué hace? |
+| :--- | :--- | :--- | :--- |
+| **Inicializar** | Configurar `drizzle.config.ts` | `flask db init` | Crea la carpeta de configuración y el entorno de migraciones (`migrations/`). Solo se ejecuta una vez en la vida del proyecto. |
+| **Generar** | `drizzle-kit generate` | `flask db migrate -m "descripción"` | Compara tus modelos de SQLAlchemy ([schema.py](file:///c:/Users/USER/Documents/projects/priceowl/apps/server/src/server/models/schema.py)) con el estado actual de Postgres y genera un archivo `.py` de migración en `migrations/versions/`. |
+| **Aplicar** | `drizzle-kit migrate` | `flask db upgrade` | Ejecuta las migraciones pendientes en tu base de datos para crear o alterar las tablas físicas. |
+| **Revertir** | Manual / Custom Script | `flask db downgrade` | Revierte la última migración aplicada (vuelve al estado anterior). |
+| **Forzar directo** | `drizzle-kit push` | `Base.metadata.create_all(...)` | Sincroniza directamente los modelos sin generar archivos de migración (peligroso en producción, evitado aquí). |
+| **Semillas** | `tsx seed.ts` | `flask seed-db` (Nuestro comando custom) | Inserta los registros iniciales una vez que las tablas ya existen en la base de datos. |
+
+> [!IMPORTANT]
+> **El problema del Huevo y la Gallina (Startup vs CLI):**
+> Al iniciar cualquier comando de `flask db ...`, Flask tiene que levantar la aplicación llamando a `create_app()`. Si dentro del inicio de la app intentamos realizar consultas (`SELECT`) de base de datos como poblar tablas semilla antes de que las tablas existan en Postgres, la app fallará con un error `UndefinedTable`. Por eso, la siembra de base de datos se extrajo a un comando CLI dedicado (`flask seed-db`) que se debe correr manualmente justo después de aplicar las migraciones.
 
 ---
 
@@ -212,6 +225,22 @@ Petición HTTP ──> Route (Controller) ──> Service ──> Repository ─
    - **Regla:** No contienen lógica de negocio. Solo guardan, actualizan o consultan información.
 4. **Models (Entidades / `@Entity` en TypeORM):**
    - Definiciones puras de tablas en `apps/server/src/server/models/schema.py`.
+
+---
+
+## 🧵 5. Procesos, Hilos y Tareas Programadas (Node.js vs Python)
+
+Una de las mayores diferencias que notarás al pasar de Node.js a Python es el modelo de ejecución de concurrencia y cómo afecta a los temporizadores (schedulers/cron jobs).
+
+### 🟢 Node.js (El modelo Event Loop)
+- Node.js es **mono-hilo** por diseño para tu código de JS, manejando la concurrencia a través del Event Loop y operaciones I/O no bloqueantes.
+- En producción (ej. con PM2 cluster mode), levantas N instancias separadas del proceso. Si configuras un `setInterval` o un planificador en tu código, **cada proceso independiente ejecutará su propio scheduler**.
+
+### 🐍 Python/Flask (El modelo multi-proceso WSGI)
+- Flask es un framework síncrono que no cuenta con un Event Loop integrado.
+- Para servir múltiples peticiones en producción, el servidor WSGI (Gunicorn) levanta **múltiples procesos independientes (workers)**.
+- **El problema de APScheduler en Flask:** Si inicializas un `BackgroundScheduler` dentro del factory `create_app()`, cada worker que levante Gunicorn ejecutará su propio scheduler. Si tienes 4 workers, tu tarea programada se ejecutará **4 veces**, duplicando ejecuciones y notificaciones.
+- **La solución (Desacoplamiento):** Al igual que crearías un `worker.js` independiente en Node, en Python separamos el programador en su propio script ejecutable: `scheduler.py` (corriendo en un proceso único y dedicado bajo un `BlockingScheduler` que bloquea el hilo principal del script).
 
 ---
 

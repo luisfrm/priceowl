@@ -1,5 +1,5 @@
-from server.extensions import db
-from server.models.schema import Provider
+from .extensions import db
+from .models.schema import Provider
 
 
 def seed_providers() -> None:

@@ -1,7 +1,8 @@
+import click
 from flask import Flask
 
 from .config import settings
-from .extensions import db, scheduler
+from .extensions import db, migrate
 
 
 def create_app() -> Flask:
@@ -14,16 +15,18 @@ def create_app() -> Flask:
 
     # --- extensions ---
     db.init_app(app)
+    
+    # Import Base to register models in metadata and configure Migrate to use it
+    from .models.schema import Base
+    migrate.init_app(app, db, metadata=Base.metadata)
 
-    # --- database: create tables and seed ---
-    with app.app_context():
-        from .models.schema import Base, Provider, User, TrackedItem, ListProduct, PriceHistory
-
-        Base.metadata.create_all(db.engine)
-
+    # --- cli commands ---
+    @app.cli.command("seed-db")
+    def seed_db():
+        """Seeds the database with initial providers."""
         from .seeds import seed_providers
         seed_providers()
-        db.session.commit()
+        click.echo("Database seeded successfully.")
 
     # --- routes ---
     from .routes.product_routes import bp as product_bp
@@ -31,20 +34,5 @@ def create_app() -> Flask:
 
     app.register_blueprint(product_bp, url_prefix="/api/products")
     app.register_blueprint(user_bp, url_prefix="/api/users")
-
-    # --- scheduler ---
-    try:
-        from .jobs.daily_check import daily_price_check
-        scheduler.add_job(
-            func=daily_price_check,
-            trigger="cron",
-            hour=settings.DAILY_CHECK_HOUR,
-            minute=settings.DAILY_CHECK_MINUTE,
-            id="daily_price_check",
-            replace_existing=True,
-        )
-        scheduler.start()
-    except Exception:
-        pass
 
     return app
